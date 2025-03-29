@@ -8,14 +8,13 @@ import argparse
 import os  # 添加这行导入语句
 
 # 设置参数
-# 设置参数
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--image",
-                default=os.path.join("images", "credit_card_01.png"),  # 默认路径
-                help="images/credit_card_01.png")
+                default=os.path.join("images", "input.jpg"),  # 默认路径
+                help="path to input image (default: images/input.jpg)")
 ap.add_argument("-t", "--template",
-                default=os.path.join("images", "ocr_a_reference.png"),  # 默认路径
-                help="ocr_a_reference.png")
+                default=os.path.join("images", "template.png"),  # 默认路径
+                help="path to template OCR-A image (default: images/template.png)")
 args = vars(ap.parse_args())
 
 # 验证文件是否存在
@@ -41,7 +40,7 @@ cv_show('img',img)
 # 灰度图
 ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 cv_show('ref',ref)
-# 二值图像
+# 二值图像（反向）
 ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY_INV)[1]
 cv_show('ref',ref)
 
@@ -89,12 +88,18 @@ gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 cv_show('gray',gray)
 
 #礼帽操作，突出更明亮的区域
+# 突出明亮数字：信用卡上的凸起数字通常比背景更亮 礼帽操作能增强这些数字区域的对比度
+# 消除不均匀光照：去除大面积的背景渐变（如信用卡底色） 保留小尺寸的明亮特征（数字部分）
+# 配合后续处理：为Sobel边缘检测提供更清晰的输入 提高数字区域的信噪比
 tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel) 
-cv_show('tophat',tophat) 
-# 
+cv_show('tophat',tophat)
+
+# Sobel边缘检测及后续的归一化处理
+# 增强数字的垂直结构：信用卡数字包含大量垂直笔画（如"4"、"7"的竖线） 水平方向的边缘被抑制（因dy=0）
+# 为形态学操作做准备：清晰的垂直边缘有助于后续闭操作连接数字区域
+# 消除背景干扰：礼帽操作后的图像仍可能包含非数字的明亮区域 Sobel边缘检测进一步聚焦于数字的结构特征
 gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0, #ksize=-1相当于用3*3的
 	ksize=-1)
-
 
 gradX = np.absolute(gradX)
 (minVal, maxVal) = (np.min(gradX), np.max(gradX))
@@ -126,12 +131,12 @@ cnts = threshCnts
 cur_img = image.copy()
 cv2.drawContours(cur_img,cnts,-1,(0,0,255),3) 
 cv_show('img',cur_img)
-locs = []
+locs = [] #有价值区域
 
 # 遍历轮廓
 for (i, c) in enumerate(cnts):
 	# 计算矩形
-	(x, y, w, h) = cv2.boundingRect(c)
+ 	(x, y, w, h) = cv2.boundingRect(c)
 	ar = w / float(h)
 
 	# 选择合适的区域，根据实际任务来，这里的基本都是四个数字一组
@@ -154,12 +159,14 @@ for (i, (gX, gY, gW, gH)) in enumerate(locs):
 	group = gray[gY - 5:gY + gH + 5, gX - 5:gX + gW + 5]
 	cv_show('group',group)
 	# 预处理
+	# 二值化
 	group = cv2.threshold(group, 0, 255,
 		cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
 	cv_show('group',group)
 	# 计算每一组的轮廓
 	digitCnts,hierarchy = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL,
 		cv2.CHAIN_APPROX_SIMPLE)
+	# 排序
 	digitCnts = contours.sort_contours(digitCnts,
 		method="left-to-right")[0]
 
