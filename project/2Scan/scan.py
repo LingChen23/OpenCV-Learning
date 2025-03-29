@@ -2,7 +2,17 @@
 import numpy as np
 import argparse
 import cv2
+import pytesseract
 
+# 必须手动指定 Tesseract 路径（即使已添加 PATH）
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# 测试识别功能
+try:
+    text = pytesseract.image_to_string('test.png', lang='eng+chi_sim')
+    print("OCR 测试成功！识别结果：\n", text)
+except Exception as e:
+    print("OCR 失败，错误信息：", str(e))
 # 设置参数
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--image", required = True,
@@ -90,8 +100,40 @@ cv2.waitKey(0)
 cv2.destroyAllWindows()
 
 # 轮廓检测
-cnts = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[1]
-cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:5]
+# 轮廓检测（完全兼容OpenCV 3.x/4.x）
+contour_result = cv2.findContours(
+    edged.copy(),
+    cv2.RETR_EXTERNAL,  # 建议使用EXTERNAL替代LIST
+    cv2.CHAIN_APPROX_SIMPLE
+)
+
+# 兼容性处理
+cnts = contour_result[0] if len(contour_result) == 2 else contour_result[1]
+
+# 安全处理轮廓
+valid_cnts = []
+for c in cnts:
+    # 检查轮廓数据类型和点数
+    if isinstance(c, np.ndarray) and len(c) >= 3:
+        c = np.array(c, dtype=np.int32)  # 确保数据类型正确
+        try:
+            area = cv2.contourArea(c)
+            peri = cv2.arcLength(c, True)
+            if area > 50 and peri > 0:  # 有效面积和周长阈值
+                valid_cnts.append(c)
+        except:
+            continue
+
+if not valid_cnts:
+    # 调试可视化
+    debug_img = image.copy()
+    cv2.drawContours(debug_img, cnts, -1, (0,0,255), 2)
+    cv2.imshow("Invalid Contours", debug_img)
+    cv2.waitKey(0)
+    raise ValueError("未找到有效轮廓，已显示所有检测到的轮廓")
+
+# 按面积排序
+cnts = sorted(valid_cnts, key=cv2.contourArea, reverse=True)[:5]
 
 # 遍历轮廓
 for c in cnts:
